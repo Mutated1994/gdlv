@@ -598,6 +598,24 @@ func loadRegs(p *asyncLoad) {
 	p.done(err)
 }
 
+func replaceRegs(in string) string {
+	// TODO 把r开头寄存器数据替换显示
+	regsName := []string{"rax", "rbx", "rcx", "rdx", "rdi", "rsi", "rbp", "rsp", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "rip"}
+
+	regs, _ := client.ListRegisters(0, true)
+	if regs == nil {
+		return in
+	}
+
+	for k, r := range regsName {
+		if strings.Contains(in, "$"+r) {
+			in = strings.Replace(in, "$"+r, regs[k].Value, len(regs[k].Value))
+		}
+	}
+
+	return in
+}
+
 func updateRegs(container *nucular.Window) {
 	w := regsPanel.asyncLoad.showRequest(container)
 	if w == nil {

@@ -924,6 +924,9 @@ func printVar(out io.Writer, args string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("not enough arguments")
 	}
+
+	args = replaceRegs(args)
+
 	val := evalScopedExpr(args, getVariableLoadConfig())
 	valstr := wrapApiVariableSimple(val).MultilineString("")
 	nlcount := 0
@@ -938,6 +941,12 @@ func printVar(out io.Writer, args string) error {
 	} else {
 		fmt.Fprintln(out, valstr)
 	}
+
+	// TODO 增加输出多样性
+	if ptr, err := strconv.Atoi(valstr); err == nil {
+		fmt.Fprintln(out, fmt.Sprintf("hex: %#x", ptr), fmt.Sprintf("\nbin: %b", ptr))
+	}
+
 	return nil
 }
 

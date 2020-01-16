@@ -416,7 +416,7 @@ func updateLocals(container *nucular.Window) {
 	if changedVariableOpacity > minChangedVariableOpacity {
 		opacityReductionPerMillisecond := float64(maxChangedVariableOpacity-minChangedVariableOpacity) / 1500
 		elapsed := time.Since(drawStartTime)
-		changedVariableOpacity = maxChangedVariableOpacity - byte(float64(elapsed.Milliseconds())*opacityReductionPerMillisecond)
+		changedVariableOpacity = maxChangedVariableOpacity - byte(float64(elapsed.Nanoseconds()/1e3)*opacityReductionPerMillisecond)
 		if changedVariableOpacity > maxChangedVariableOpacity || changedVariableOpacity < minChangedVariableOpacity {
 			changedVariableOpacity = minChangedVariableOpacity
 		}
