@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/aarzilli/gdlv/internal/dlvclient/service/api"
 	"github.com/aarzilli/gdlv/internal/prettyprint"
 )
 
@@ -28,6 +29,7 @@ func TestShortenType(t *testing.T) {
 	c("map[uint64]*github.com/aarzilli/dwarf5/dwarf.typeUnit", "map[uint64]*dwarf.typeUnit")
 	c("uint8", "uint8")
 	c("encoding/binary", "encoding/binary")
+	c("*github.com/go-delve/delve/pkg/proc.Target", "*proc.Target")
 }
 
 func TestCurrentColumn(t *testing.T) {
@@ -44,17 +46,21 @@ func TestCurrentColumn(t *testing.T) {
 	c("something\nsomething else\nblah", 4)
 }
 
-func TestAutowrap(t *testing.T) {
-	c := func(src, src1 string, ncols int, tgt string) {
-		if o := string(autowrappend([]rune(src), []rune(src1), ncols)); o != tgt {
-			t.Errorf("for %q+%q (%d) expected %q got %q", src, src1, ncols, tgt, o)
+func TestWrapInstruction(t *testing.T) {
+	c := func(src, tgtop, tgtargs string) {
+		out := wrapInstructions([]api.AsmInstruction{{Text: src}}, 0)
+		if out[0].op != tgtop || out[0].args != tgtargs {
+			t.Errorf("for %q expected op=%q arg=%q got op=%q arg=%q", src, tgtop, tgtargs, out[0].op, out[0].args)
+		} else {
+			t.Logf("for %q got op=%q arg=%q", src, out[0].op, out[0].args)
 		}
 	}
 
-	c("", "", 10, "")
-	c("something\n", "blah", 10, "something\nblah")
-	c("something\nb", "lah", 10, "something\nblah")
-	c("something\nsomething", "blah", 10, "something\nsomethingb\nlah")
-	c("something\nsomething1111", "blah", 10, "something\nsomething1111\nblah")
-	c("something\nsomething1111", "", 10, "something\nsomething1111")
+	c("blah", "blah", "")
+	c("rep blah", "rep blah", "")
+	c("blah arg1, arg2", "blah", "arg1, arg2")
+	c("rep blah arg1, arg2", "rep blah", "arg1, arg2")
+	c("rep lock blah arg1, arg2", "rep lock blah", "arg1, arg2")
+	c("rex.w blah", "rex.w blah", "")
+	c("rex.w blah arg1", "rex.w blah", "arg1")
 }

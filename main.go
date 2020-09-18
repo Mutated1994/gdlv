@@ -28,7 +28,7 @@ import (
 	"golang.org/x/mobile/event/key"
 )
 
-//go:generate go-bindata -o internal/assets/assets.go -pkg assets fontawesome-webfont.ttf droid-sans.bold.ttf
+//go:generate go-bindata -o internal/assets/assets.go -pkg assets fontawesome-webfont.ttf droid-sans.bold.ttf codicon.ttf
 
 const profileEnabled = false
 
@@ -36,11 +36,13 @@ var zeroWidth, arrowWidth, starWidth, spaceWidth int
 
 var fontInit sync.Once
 var iconFace font.Face
+var codiconFace font.Face
 var boldFace font.Face
 
 var normalFontData []byte
 var boldFontData []byte
 var iconFontData []byte
+var codiconFontData []byte
 
 var (
 	linkColor      = color.RGBA{0x00, 0x88, 0xdd, 0xff}
@@ -51,14 +53,12 @@ const (
 	arrowIconChar      = "\uf061"
 	breakpointIconChar = "\uf28d"
 
-	interruptIconChar = "\uf04c"
-	continueIconChar  = "\uf04b"
-	cancelIconChar    = "\uf05e"
-	nextIconChar      = "\uf050"
-	stepIconChar      = "\uf051"
-	stepoutIconChar   = "\uf112"
-
-	splitIconChar = "\uf0db"
+	interruptIconChar = "\uEAD1"
+	continueIconChar  = "\uEACF"
+	cancelIconChar    = "\uEAD7"
+	nextIconChar      = "\uEAD6"
+	stepIconChar      = "\uEAD4"
+	stepoutIconChar   = "\uEAD5"
 )
 
 func setupStyle() {
@@ -79,6 +79,7 @@ func setupStyle() {
 
 	fontInit.Do(func() {
 		iconFontData, _ = assets.Asset("fontawesome-webfont.ttf")
+		codiconFontData, _ = assets.Asset("codicon.ttf")
 
 		normalFontPath := os.Getenv("GDLV_NORMAL_FONT")
 		boldFontPath := os.Getenv("GDLV_BOLD_FONT")
@@ -128,6 +129,11 @@ func setupStyle() {
 		fmt.Fprintf(os.Stderr, "could not parse icon font: %v\n", err)
 		os.Exit(1)
 	}
+	codiconFace, err = font.NewFace(codiconFontData, sz)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not parse codicon font: %v\n", err)
+		os.Exit(1)
+	}
 	boldFace, err = font.NewFace(boldFontData, sz)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not parse bold font: %v\n", err)
@@ -165,7 +171,7 @@ var listingPanel struct {
 	recenterListing     bool
 	recenterDisassembly bool
 	listing             []listline
-	text                api.AsmInstructions
+	text                []wrappedInstruction
 	framePC             uint64
 	pinnedLoc           *api.Location
 	stale               bool
@@ -174,6 +180,10 @@ var listingPanel struct {
 
 	stepIntoInfo   stepIntoInfo
 	stepIntoFilled bool
+
+	disassHoverIdx      int
+	disassHoverClickIdx int
+	centerOnDisassHover bool
 }
 
 var wnd nucular.MasterWindow
@@ -203,7 +213,6 @@ func guiUpdate(w *nucular.Window) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	var scrollbackOut = editorWriter{false}
 	mw := w.Master()
 
 	for _, e := range wnd.Input().Keyboard.Keys {
@@ -227,6 +236,7 @@ func guiUpdate(w *nucular.Window) {
 
 		case (e.Modifiers == 0) && (e.Code == key.CodeEscape):
 			mw.ActivateEditor(&commandLineEditor)
+			mw.Changed()
 
 		case (e.Modifiers == 0) && (e.Code == key.CodeF5):
 			if !client.Running() && client != nil {
@@ -257,15 +267,8 @@ func guiUpdate(w *nucular.Window) {
 		case (e.Modifiers == key.ModShift) && (e.Code == key.CodeF5):
 			fallthrough
 		case (e.Modifiers == key.ModControl) && (e.Code == key.CodeDeleteForward):
-			if client.Running() && client != nil {
-				_, err := client.Halt()
-				if err != nil {
-					fmt.Fprintf(&scrollbackOut, "Request manual stop failed: %v\n", err)
-				}
-				err = client.CancelNext()
-				if err != nil {
-					fmt.Fprintf(&scrollbackOut, "Could not cancel next operation: %v\n", err)
-				}
+			if client != nil {
+				doCommand("interrupt")
 			}
 
 		case (e.Modifiers == key.ModAlt) && (e.Code == key.Code1):
@@ -462,7 +465,12 @@ func updateCommandPanel(w *nucular.Window) {
 			starlarkMode <- cmd
 		} else if canExecuteCmd(cmd) && !client.Running() {
 			if cmd == "" {
-				fmt.Fprintf(&scrollbackOut, "%s %s\n", p, cmdhistory[len(cmdhistory)-1])
+				if len(cmdhistory) > 0 {
+					fmt.Fprintf(&scrollbackOut, "%s %s\n", p, cmdhistory[len(cmdhistory)-1])
+					cmd = cmdhistory[len(cmdhistory)-1]
+				} else {
+					cmd = "help"
+				}
 			} else {
 				cmdhistory = append(cmdhistory, cmd)
 				fmt.Fprintf(&scrollbackOut, "%s %s\n", p, cmd)
@@ -610,6 +618,11 @@ func refreshState(toframe refreshToFrame, clearKind clearKind, state *api.Debugg
 
 			wnd.Unlock()
 			return
+		}
+	} else if state != nil && state.Err != nil {
+		state2, err := client.GetState()
+		if err == nil && state2.Err == nil {
+			state = state2
 		}
 	}
 
@@ -777,6 +790,8 @@ func refreshState(toframe refreshToFrame, clearKind clearKind, state *api.Debugg
 func loadDisassembly(p *asyncLoad) {
 	listingPanel.text = nil
 	listingPanel.recenterDisassembly = true
+	listingPanel.disassHoverIdx = -1
+	listingPanel.disassHoverClickIdx = -1
 
 	loc := disassemblyPanel.loc
 
@@ -791,7 +806,7 @@ func loadDisassembly(p *asyncLoad) {
 			return
 		}
 
-		listingPanel.text = text
+		listingPanel.text = wrapInstructions(text, loc.PC)
 		listingPanel.framePC = loc.PC
 	} else {
 		listingPanel.text = nil
@@ -1045,7 +1060,7 @@ func main() {
 
 	var scrollbackOut = editorWriter{true}
 
-	fmt.Fprintf(&scrollbackOut, `gdlv  Copyright (C) 2016-2019 Gdlv Authors
+	fmt.Fprintf(&scrollbackOut, `gdlv  Copyright (C) 2016-2020 Gdlv Authors
 This program comes with ABSOLUTELY NO WARRANTY;
 This is free software, and you are welcome to redistribute it
 under certain conditions; see COPYING for details.
@@ -1061,7 +1076,10 @@ To change font size use Ctrl-plus/Ctrl-minus or the 'config zoom' command.
 
 	go BackendServer.Start()
 
-	wnd.Main()
+	wnd.OnClose(func() {
+		BackendServer.Close()
+		os.Exit(0)
+	})
 
-	BackendServer.Close()
+	wnd.Main()
 }

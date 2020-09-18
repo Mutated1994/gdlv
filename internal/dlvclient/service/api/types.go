@@ -12,7 +12,7 @@ import (
 // DebuggerState represents the current context of the debugger.
 type DebuggerState struct {
 	// Running is true if the process is running and no other information can be collected.
-	Running bool
+	Running, Recording bool
 	// CurrentThread is the currently selected debugger thread.
 	CurrentThread *Thread `json:"currentThread,omitempty"`
 	// SelectedGoroutine is the currently selected goroutine
@@ -42,6 +42,8 @@ type Breakpoint struct {
 	Name string `json:"name"`
 	// Addr is the address of the breakpoint.
 	Addr uint64 `json:"addr"`
+	// Addrs is the list of addresses for this breakpoint.
+	Addrs []uint64 `json:"addrs"`
 	// File is the source file for the breakpoint.
 	File string `json:"file"`
 	// Line is a line in File for the breakpoint.
@@ -115,6 +117,7 @@ type Location struct {
 	File     string    `json:"file"`
 	Line     int       `json:"line"`
 	Function *Function `json:"function,omitempty"`
+	PCs      []uint64  `json:"pcs,omitempty"`
 }
 
 type Stackframe struct {
@@ -268,6 +271,8 @@ type Goroutine struct {
 	StartLoc Location `json:"startLoc"`
 	// ID of the associated thread for running goroutines
 	ThreadID int `json:"threadID"`
+	// Goroutine's pprof labels
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // DebuggerCommand is a command which changes the debugger's execution state.
@@ -323,14 +328,24 @@ const (
 	Continue = "continue"
 	// Rewind resumes process execution backwards (target must be a recording).
 	Rewind = "rewind"
+	// DirecitonCongruentContinue resumes process execution, if a reverse next, step or stepout operation is in progress it will resume execution backward.
+	DirectionCongruentContinue = "directionCongruentContinue"
 	// Step continues to next source line, entering function calls.
 	Step = "step"
+	// ReverseStep continues backward to the previous line of source code, entering function calls.
+	ReverseStep = "reverseStep"
 	// StepOut continues to the return address of the current function
 	StepOut = "stepOut"
+	// ReverseStepOut continues backward to the calle rof the current function.
+	ReverseStepOut = "reverseStepOut"
 	// SingleStep continues for exactly 1 cpu instruction.
 	StepInstruction = "stepInstruction"
+	// ReverseStepInstruction reverses execution for exactly 1 cpu instruction.
+	ReverseStepInstruction = "reverseStepInstruction"
 	// Next continues to the next source line, not entering function calls.
 	Next = "next"
+	// ReverseNext continues backward to the previous line of source code, not entering function calls.
+	ReverseNext = "reverseNext"
 	// SwitchThread switches the debugger's current thread context.
 	SwitchThread = "switchThread"
 	// SwitchGoroutine switches the debugger's current thread context to the thread running the specified goroutine

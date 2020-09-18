@@ -231,8 +231,9 @@ type AttachedToExistingProcessOut struct {
 }
 
 type FindLocationIn struct {
-	Scope api.EvalScope
-	Loc   string
+	Scope                     api.EvalScope
+	Loc                       string
+	IncludeNonExecutableLines bool
 }
 
 type FindLocationOut struct {
@@ -322,4 +323,10 @@ type ListDynamicLibrariesIn struct {
 // ListDynamicLibrariesOut holds the return values of ListDynamicLibraries
 type ListDynamicLibrariesOut struct {
 	List []api.Image
+}
+
+type StopRecordingIn struct {
+}
+
+type StopRecordingOut struct {
 }
